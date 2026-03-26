@@ -202,10 +202,10 @@ def scrape_xlsx_data():
         _log("info", f"XLSX columns found: {list(col_map.keys())[:10]}")
 
         # Key columns
-        status_col = col_map.get('CASE_STATUS', col_map.get('STATUS'))
-        date_col = col_map.get('DECISION_DATE', col_map.get('DETERMINATION_DATE'))
-        employer_col = col_map.get('EMPLOYER_NAME', col_map.get('EMPLOYER_BUSINESS_NAME'))
-        received_col = col_map.get('RECEIVED_DATE', col_map.get('CASE_RECEIVED_DATE'))
+        status_col = col_map.get('CASE_STATUS', col_map.get('STATUS', col_map.get('CASE_STATUS_DESCRIPTION')))
+        date_col = col_map.get('DECISION_DATE', col_map.get('DETERMINATION_DATE', col_map.get('DECISION_DATE')))
+        employer_col = col_map.get('EMPLOYER_NAME', col_map.get('EMPLOYER_BUSINESS_NAME', col_map.get('EMP_BUSINESS_NAME', col_map.get('EMP_TRADE_NAME'))))
+        received_col = col_map.get('RECEIVED_DATE', col_map.get('CASE_RECEIVED_DATE', col_map.get('RECEIPT_DATE')))
 
         if status_col is None:
             _log("error", "No CASE_STATUS column found")
