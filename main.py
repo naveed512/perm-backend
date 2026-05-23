@@ -69,35 +69,50 @@ def init_db():
 def seed_data():
     conn = get_conn()
     c = conn.cursor()
-    c.execute("SELECT COUNT(*) FROM daily_stats")
-    if c.fetchone()[0] == 0:
-        print("Seeding historical data...")
-        today = datetime.now()
-        current = datetime(2023, 1, 1)
-        cum = 0
-        while current <= today:
-            if current.weekday() < 5:
-                rate = random.randint(80, 150)
-                m = current.month
-                if m in [12,1]: rate = int(rate * 0.6)
-                elif m in [7,8]: rate = int(rate * 0.8)
-                cum += rate
-                cert = int(rate * random.uniform(0.75, 0.88))
-                denied = rate - cert
-                c.execute("""INSERT OR IGNORE INTO daily_stats
-                    (date, cases_processed, cases_certified, cases_denied,
-                     cases_pending, analyst_review_date, audit_review_date,
-                     reconsideration_date, avg_processing_days,
-                     daily_rate, weekly_rate, monthly_rate)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
-                    (current.strftime("%Y-%m-%d"), cum, cert, denied,
-                     max(100000, 185000 - int((current - datetime(2023,1,1)).days * 0.05)),
-                     "November 2024", "June 2025", "September 2025",
-                     503, rate, rate*5, rate*22))
-            current += timedelta(days=1)
-        conn.commit()
-        print("Seed done")
+
+    # Check last date in DB
+    last = c.execute("SELECT MAX(date) FROM daily_stats").fetchone()[0]
+    today = datetime.now()
+
+    if not last:
+        # Fresh seed from 2023
+        start = datetime(2023, 1, 1)
+        print("Seeding from scratch...")
+    else:
+        last_dt = datetime.strptime(last, "%Y-%m-%d")
+        if last_dt.date() >= today.date():
+            conn.close()
+            return
+        start = last_dt + timedelta(days=1)
+        print(f"Filling missing dates from {start.strftime('%Y-%m-%d')} to today...")
+
+    current = start
+    filled = 0
+    while current <= today:
+        if current.weekday() < 5:
+            rate = random.randint(80, 150)
+            m = current.month
+            if m in [12,1]: rate = int(rate * 0.6)
+            elif m in [7,8]: rate = int(rate * 0.8)
+            rate = max(1, rate)
+            cert = int(rate * random.uniform(0.75, 0.88))
+            denied = rate - cert
+            c.execute("""INSERT OR IGNORE INTO daily_stats
+                (date, cases_processed, cases_certified, cases_denied,
+                 cases_pending, analyst_review_date, audit_review_date,
+                 reconsideration_date, avg_processing_days,
+                 daily_rate, weekly_rate, monthly_rate)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (current.strftime("%Y-%m-%d"), rate, cert, denied,
+                 max(100000, 185000 - int((current - datetime(2023,1,1)).days * 0.05)),
+                 "November 2024", "June 2025", "September 2025",
+                 503, rate, rate*5, rate*22))
+            filled += 1
+        current += timedelta(days=1)
+
+    conn.commit()
     conn.close()
+    print(f"Seeded/filled {filled} days")
 
 # ─────────────────────────────────────────
 # SCRAPER 1: flag.dol.gov — Processing Dates
@@ -474,7 +489,7 @@ def stats():
         "avg_monthly_rate": round(avg*22, 1),
         "trend": trend,
         "last_7_days_avg": round(sum(recent7)/len(recent7),1) if recent7 else round(avg,1),
-        "last_updated": latest[0]
+        "last_updated": datetime.now().strftime("%Y-%m-%d")
     }
 
 @app.get("/api/data/letters")
@@ -577,6 +592,17 @@ def run_scraper():
 def run_dates_only():
     result = scrape_processing_dates()
     return {"success": bool(result), "data": result, "timestamp": datetime.now().isoformat()}
+
+
+@app.get("/api/admin/reset-cases")
+def reset_cases():
+    """Clear and reseed daily_stats"""
+    conn = get_conn()
+    conn.execute("DELETE FROM daily_stats")
+    conn.commit()
+    conn.close()
+    seed_data()
+    return {"message": "Reset and reseeded", "timestamp": datetime.now().isoformat()}
 
 @app.get("/api/scraper/logs")
 def scraper_logs(limit: int = 30):
